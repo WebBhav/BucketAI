@@ -1,0 +1,8 @@
+{
+  "name": "BucketAI — Intelligent Remark Bucketisation & Discovery",
+  "description": "Enterprise Excel remark bucketisation utility with guided workflow, conditional row filtering, in-browser clustering, and chart-preserving export.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
