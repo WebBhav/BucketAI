@@ -166,6 +166,13 @@ export default function App() {
       setRemarksCol(rem);
       setContextCols(parsed.suggestion.contextCols);
 
+      // Reset filter configuration so stale column filters from another sheet do not persist
+      setFilterConfig({
+        groups: [],
+        groupCombinator: 'AND',
+        inverted: false,
+      });
+
       // Invalidate downstream deduplication, embeddings, and clustering
       const dedup = deduplicateRemarks(parsed.rows, rem, pk);
       setUniqueRemarks(dedup.uniqueRemarks);
@@ -551,7 +558,7 @@ export default function App() {
   };
 
   // Chart-Preserving Excel Export Handler
-  const handleExport = async () => {
+  const handleExport = async (chartType: 'bar' | 'pie' = 'bar') => {
     if (!clusteringResult || rows.length === 0) return;
     setIsExporting(true);
 
@@ -603,8 +610,10 @@ export default function App() {
         assignments,
         clusteringResult.buckets,
         primaryKeyCol,
+        activeSheet,
         preservationMeta,
-        exportName
+        exportName,
+        chartType
       );
     } catch (err: any) {
       alert(`Export error: ${err.message}`);
@@ -775,6 +784,7 @@ export default function App() {
               uniqueRemarks={uniqueRemarks}
               remarksCol={remarksCol}
               primaryKeyCol={primaryKeyCol}
+              selectedSheetName={activeSheet}
               preservationMeta={preservationMeta}
               onExport={handleExport}
               onInspectBucket={setInspectBucketTarget}

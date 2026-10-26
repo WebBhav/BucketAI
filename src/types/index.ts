@@ -88,6 +88,7 @@ export interface Bucket {
   isManuallyCreatedOrModified?: boolean;
   isOutlierBucket?: boolean;
   isBlankBucket?: boolean;
+  reviewRequired?: boolean;
 }
 
 export interface GranularitySetting {

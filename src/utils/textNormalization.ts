@@ -89,7 +89,7 @@ export function deduplicateRemarks(
       if (!hashToRemark.has(blankHash)) {
         hashToRemark.set(blankHash, {
           hash: blankHash,
-          originalText: 'Blank / No Remark',
+          originalText: 'Blank / No Remarks',
           normalizedText: '',
           isBlank: true,
           rowIndices: [rowIndex],

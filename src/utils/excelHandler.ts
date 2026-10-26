@@ -257,9 +257,14 @@ export async function parseExcelOrCsv(file: File): Promise<ParsedWorkbookData> {
 }
 
 /**
- * Creates OpenXML Bar Chart XML for embedding in Excel .xlsx
+ * Creates OpenXML Chart XML (Bar or Pie) for embedding in Excel .xlsx
  */
-function generateOpenXmlBarChart(categories: string[], values: number[]): string {
+function generateOpenXmlChart(
+  categories: string[],
+  values: number[],
+  summarySheetName: string,
+  chartType: 'bar' | 'pie' = 'bar'
+): string {
   const count = categories.length;
   const numCats = categories
     .map((c, i) => `<c:pt idx="${i}"><c:v>${escapeXml(c)}</c:v></c:pt>`)
@@ -268,29 +273,43 @@ function generateOpenXmlBarChart(categories: string[], values: number[]): string
     .map((v, i) => `<c:pt idx="${i}"><c:v>${v}</c:v></c:pt>`)
     .join('');
 
-  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<c:chartSpace xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
-  <c:chart>
-    <c:title>
-      <c:tx><c:rich><a:bodyPr/><a:lstStyle/><a:p><a:pPr><a:defRPr sz="1400" b="1"/></a:pPr><a:r><a:rPr/><a:t>BucketAI — Remark Distribution</a:t></a:r></a:p></c:rich></c:tx>
-      <c:layout/>
-      <c:overlay val="0"/>
-    </c:title>
-    <c:plotArea>
-      <c:layout/>
-      <c:barChart>
-        <c:barDir val="col"/>
-        <c:grouping val="clustered"/>
+  // Palette colors for pie chart segments
+  const pieColors = [
+    'E11D48', 'F43F5E', 'BE123C', '9F1239', '881337',
+    '3F3F46', '52525B', '71717A', 'A1A1AA', 'D4D4D8'
+  ];
+
+  const pieDataPoints = categories
+    .map((_, i) => `
+      <c:dPt>
+        <c:idx val="${i}"/>
+        <c:spPr>
+          <a:solidFill><a:srgbClr val="${pieColors[i % pieColors.length]}"/></a:solidFill>
+        </c:spPr>
+      </c:dPt>
+    `)
+    .join('');
+
+  const chartBody = chartType === 'pie'
+    ? `
+      <c:pieChart>
+        <c:varyColors val="1"/>
         <c:ser>
           <c:idx val="0"/>
           <c:order val="0"/>
-          <c:tx><c:strRef><c:f>Bucket_Summary!$C$1</c:f><c:strCache><c:ptCount val="1"/><c:pt idx="0"><c:v>Total Rows</c:v></c:pt></c:strCache></c:strRef></c:tx>
-          <c:spPr>
-            <a:solidFill><a:srgbClr val="E11D48"/></a:solidFill>
-          </c:spPr>
+          <c:tx>
+            <c:strRef>
+              <c:f>&apos;${escapeXml(summarySheetName)}&apos;!$C$14</c:f>
+              <c:strCache>
+                <c:ptCount val="1"/>
+                <c:pt idx="0"><c:v>Total Rows</c:v></c:pt>
+              </c:strCache>
+            </c:strRef>
+          </c:tx>
+          ${pieDataPoints}
           <c:cat>
             <c:strRef>
-              <c:f>Bucket_Summary!$B$2:$B$${count + 1}</c:f>
+              <c:f>&apos;${escapeXml(summarySheetName)}&apos;!$B$15:$B$${14 + count}</c:f>
               <c:strCache>
                 <c:ptCount val="${count}"/>
                 ${numCats}
@@ -299,7 +318,49 @@ function generateOpenXmlBarChart(categories: string[], values: number[]): string
           </c:cat>
           <c:val>
             <c:numRef>
-              <c:f>Bucket_Summary!$C$2:$C$${count + 1}</c:f>
+              <c:f>&apos;${escapeXml(summarySheetName)}&apos;!$C$15:$C$${14 + count}</c:f>
+              <c:numCache>
+                <c:formatCode>#,##0</c:formatCode>
+                <c:ptCount val="${count}"/>
+                ${numVals}
+              </c:numCache>
+            </c:numRef>
+          </c:val>
+        </c:ser>
+        <c:firstSliceAng val="0"/>
+      </c:pieChart>
+    `
+    : `
+      <c:barChart>
+        <c:barDir val="col"/>
+        <c:grouping val="clustered"/>
+        <c:ser>
+          <c:idx val="0"/>
+          <c:order val="0"/>
+          <c:tx>
+            <c:strRef>
+              <c:f>&apos;${escapeXml(summarySheetName)}&apos;!$C$14</c:f>
+              <c:strCache>
+                <c:ptCount val="1"/>
+                <c:pt idx="0"><c:v>Total Rows</c:v></c:pt>
+              </c:strCache>
+            </c:strRef>
+          </c:tx>
+          <c:spPr>
+            <a:solidFill><a:srgbClr val="E11D48"/></a:solidFill>
+          </c:spPr>
+          <c:cat>
+            <c:strRef>
+              <c:f>&apos;${escapeXml(summarySheetName)}&apos;!$B$15:$B$${14 + count}</c:f>
+              <c:strCache>
+                <c:ptCount val="${count}"/>
+                ${numCats}
+              </c:strCache>
+            </c:strRef>
+          </c:cat>
+          <c:val>
+            <c:numRef>
+              <c:f>&apos;${escapeXml(summarySheetName)}&apos;!$C$15:$C$${14 + count}</c:f>
               <c:numCache>
                 <c:formatCode>#,##0</c:formatCode>
                 <c:ptCount val="${count}"/>
@@ -338,6 +399,19 @@ function generateOpenXmlBarChart(categories: string[], values: number[]): string
         <c:crosses val="autoZero"/>
         <c:crossBetween val="between"/>
       </c:valAx>
+    `;
+
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<c:chartSpace xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <c:chart>
+    <c:title>
+      <c:tx><c:rich><a:bodyPr/><a:lstStyle/><a:p><a:pPr><a:defRPr sz="1400" b="1"/></a:pPr><a:r><a:rPr/><a:t>BucketAI — Remark Distribution</a:t></a:r></a:p></c:rich></c:tx>
+      <c:layout/>
+      <c:overlay val="0"/>
+    </c:title>
+    <c:plotArea>
+      <c:layout/>
+      ${chartBody}
     </c:plotArea>
     <c:legend>
       <c:legendPos val="r"/>
@@ -350,17 +424,18 @@ function generateOpenXmlBarChart(categories: string[], values: number[]): string
 }
 
 /**
- * Creates OpenXML Drawing XML anchoring the chart to Col E Row 2 through Col M Row 17
+ * Creates OpenXML Drawing XML anchoring the chart cleanly next to the summary tables
+ * (Anchors from Column H, Row 3 to Column Q, Row 22)
  */
 function generateOpenXmlDrawing(): string {
   return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <xdr:wsDr xmlns:xdr="http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
   <xdr:twoCellAnchor>
-    <xdr:from><xdr:col>4</xdr:col><xdr:colOffset>0</xdr:colOffset><xdr:row>1</xdr:row><xdr:rowOffset>0</xdr:rowOffset></xdr:from>
-    <xdr:to><xdr:col>13</xdr:col><xdr:colOffset>0</xdr:colOffset><xdr:row>18</xdr:row><xdr:rowOffset>0</xdr:rowOffset></xdr:to>
+    <xdr:from><xdr:col>7</xdr:col><xdr:colOffset>100000</xdr:colOffset><xdr:row>2</xdr:row><xdr:rowOffset>50000</xdr:rowOffset></xdr:from>
+    <xdr:to><xdr:col>16</xdr:col><xdr:colOffset>200000</xdr:colOffset><xdr:row>22</xdr:row><xdr:rowOffset>100000</xdr:rowOffset></xdr:to>
     <xdr:graphicFrame macro="">
       <xdr:nvGraphicFramePr>
-        <xdr:cNvPr id="2" name="Chart 1"/>
+        <xdr:cNvPr id="2" name="BucketAI Chart 1"/>
         <xdr:cNvGraphicFramePr/>
       </xdr:nvGraphicFramePr>
       <xdr:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/></xdr:xfrm>
@@ -376,10 +451,128 @@ function generateOpenXmlDrawing(): string {
 }
 
 /**
+ * Generates OpenXML worksheet XML for the dedicated BucketAI Summary sheet
+ */
+function generateOpenXmlSummarySheet(
+  summarySheetName: string,
+  fileName: string,
+  selectedSheetName: string,
+  buckets: Bucket[],
+  totalRows: number,
+  includedRows: number,
+  excludedRows: number,
+  needsReviewRows: number
+): string {
+  const timestamp = new Date().toISOString().replace('T', ' ').substring(0, 19) + ' UTC';
+  const blankBucket = buckets.find((b) => b.isBlankBucket || b.id === 'bucket_blank');
+  const blankRows = blankBucket ? blankBucket.totalRows : 0;
+  const discoveredCategoriesCount = buckets.filter((b) => !b.isBlankBucket).length;
+
+  // Build rows for category breakdown table (starts at row 15)
+  const categoryRowsXml = buckets
+    .map((b, idx) => {
+      const rowNum = 15 + idx;
+      const pct = includedRows > 0 ? ((b.totalRows / includedRows) * 100).toFixed(1) + '%' : '0%';
+      const catType = b.isBlankBucket || b.id === 'bucket_blank'
+        ? 'Blank / No Remarks'
+        : b.isOutlierBucket
+        ? 'Outlier / Borderline'
+        : 'Discovered Category';
+
+      return `<row r="${rowNum}">
+        <c r="A${rowNum}" t="inlineStr"><is><t>${escapeXml(b.id)}</t></is></c>
+        <c r="B${rowNum}" t="inlineStr"><is><t>${escapeXml(b.name)}</t></is></c>
+        <c r="C${rowNum}"><v>${b.totalRows}</v></c>
+        <c r="D${rowNum}" t="inlineStr"><is><t>${escapeXml(pct)}</t></is></c>
+        <c r="E${rowNum}" t="inlineStr"><is><t>${escapeXml(catType)}</t></is></c>
+        <c r="F${rowNum}" t="inlineStr"><is><t>${escapeXml(b.description || '')}</t></is></c>
+      </row>`;
+    })
+    .join('\n');
+
+  const maxRow = 15 + buckets.length;
+
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <dimension ref="A1:F${maxRow}"/>
+  <sheetViews>
+    <sheetView tabSelected="1" workbookViewId="0">
+      <pane ySplit="14" topLeftCell="A15" activePane="bottomLeft" state="frozen"/>
+    </sheetView>
+  </sheetViews>
+  <sheetFormatPr defaultRowHeight="15"/>
+  <cols>
+    <col min="1" max="1" width="16" customWidth="1"/>
+    <col min="2" max="2" width="30" customWidth="1"/>
+    <col min="3" max="3" width="14" customWidth="1"/>
+    <col min="4" max="4" width="16" customWidth="1"/>
+    <col min="5" max="5" width="22" customWidth="1"/>
+    <col min="6" max="6" width="45" customWidth="1"/>
+  </cols>
+  <sheetData>
+    <row r="1">
+      <c r="A1" t="inlineStr"><is><t>BucketAI Categorization &amp; Remark Analysis Summary</t></is></c>
+    </row>
+    <row r="2">
+      <c r="A2" t="inlineStr"><is><t>Workbook: ${escapeXml(fileName)} | Target Sheet: ${escapeXml(selectedSheetName)} | Generated: ${escapeXml(timestamp)}</t></is></c>
+    </row>
+    <row r="4">
+      <c r="A4" t="inlineStr"><is><t>DATASET METRIC</t></is></c>
+      <c r="B4" t="inlineStr"><is><t>VALUE</t></is></c>
+      <c r="C4" t="inlineStr"><is><t>NOTES</t></is></c>
+    </row>
+    <row r="5">
+      <c r="A5" t="inlineStr"><is><t>Total Input Records</t></is></c>
+      <c r="B5"><v>${totalRows}</v></c>
+      <c r="C5" t="inlineStr"><is><t>100% of rows preserved in original order</t></is></c>
+    </row>
+    <row r="6">
+      <c r="A6" t="inlineStr"><is><t>Processed (Included)</t></is></c>
+      <c r="B6"><v>${includedRows}</v></c>
+      <c r="C6" t="inlineStr"><is><t>Evaluated by semantic discovery &amp; categorization</t></is></c>
+    </row>
+    <row r="7">
+      <c r="A7" t="inlineStr"><is><t>Excluded by Filter Rules</t></is></c>
+      <c r="B7"><v>${excludedRows}</v></c>
+      <c r="C7" t="inlineStr"><is><t>Untouched in target worksheet</t></is></c>
+    </row>
+    <row r="8">
+      <c r="A8" t="inlineStr"><is><t>Blank / No Remarks</t></is></c>
+      <c r="B8"><v>${blankRows}</v></c>
+      <c r="C8" t="inlineStr"><is><t>Explicit category for missing or empty text</t></is></c>
+    </row>
+    <row r="9">
+      <c r="A9" t="inlineStr"><is><t>Discovered Categories</t></is></c>
+      <c r="B9"><v>${discoveredCategoriesCount}</v></c>
+      <c r="C9" t="inlineStr"><is><t>Semantic topic buckets discovered from remarks</t></is></c>
+    </row>
+    <row r="10">
+      <c r="A10" t="inlineStr"><is><t>Review Required</t></is></c>
+      <c r="B10"><v>${needsReviewRows}</v></c>
+      <c r="C10" t="inlineStr"><is><t>Outliers or low-confidence borderlines</t></is></c>
+    </row>
+    <row r="13">
+      <c r="A13" t="inlineStr"><is><t>CATEGORY DISTRIBUTION &amp; TAXONOMY</t></is></c>
+    </row>
+    <row r="14">
+      <c r="A14" t="inlineStr"><is><t>Bucket_ID</t></is></c>
+      <c r="B14" t="inlineStr"><is><t>Category Name</t></is></c>
+      <c r="C14" t="inlineStr"><is><t>Total Rows</t></is></c>
+      <c r="D14" t="inlineStr"><is><t>% of Included</t></is></c>
+      <c r="E14" t="inlineStr"><is><t>Category Type</t></is></c>
+      <c r="F14" t="inlineStr"><is><t>Description</t></is></c>
+    </row>
+    ${categoryRowsXml}
+  </sheetData>
+  <drawing r:id="rId1"/>
+</worksheet>`;
+}
+
+/**
  * High-Fidelity Chart-Preserving & Chart-Generating Excel Exporter
  * 1. Preserves existing charts and worksheets in the input workbook.
- * 2. Injects enriched columns into the active worksheet.
- * 3. Builds a dedicated Bucket_Summary worksheet with an embedded native Excel BarChart!
+ * 2. Injects enriched columns exclusively into the user-selected worksheet.
+ * 3. Builds a dedicated BucketAI Summary worksheet with an embedded native Excel chart (Bar or Pie).
  */
 export async function exportChartPreservingWorkbook(
   originalRows: RawRow[],
@@ -387,15 +580,25 @@ export async function exportChartPreservingWorkbook(
   assignments: Map<number, RowAssignment>,
   buckets: Bucket[],
   primaryKeyCol: string,
+  selectedSheetName: string,
   preservationMeta?: WorkbookPreservationMeta,
-  fileName = 'BucketAI_Categorized.xlsx'
+  fileName = 'BucketAI_Categorized.xlsx',
+  chartType: 'bar' | 'pie' = 'bar'
 ): Promise<{ method: 'chart_preserving_archive' | 'structured_multi_sheet'; featuresPreserved: string[] }> {
-  const isXlsx = preservationMeta?.originalFileName?.endsWith('.xlsx');
+  const isXlsx = preservationMeta?.originalFileName?.endsWith('.xlsx') || fileName.endsWith('.xlsx');
   const bucketMap = new Map<string, Bucket>();
   buckets.forEach((b) => bucketMap.set(b.id, b));
 
-  // Eligible semantic buckets for chart
-  const chartBuckets = buckets.filter((b) => !b.isBlankBucket);
+  const totalRows = originalRows.length;
+  const includedAssignments = Array.from(assignments.values()).filter((a) => !a.isExcludedByFilter);
+  const includedRows = includedAssignments.length;
+  const excludedRows = totalRows - includedRows;
+  const needsReviewRows = includedAssignments.filter(
+    (a) => a.confidence === 'Needs Review' || a.bucketId === 'bucket_outliers'
+  ).length;
+
+  // Chart categories and values (all non-empty buckets)
+  const chartBuckets = buckets.filter((b) => b.totalRows > 0);
   const chartCatNames = chartBuckets.map((b) => b.name);
   const chartCounts = chartBuckets.map((b) => b.totalRows);
 
@@ -404,121 +607,244 @@ export async function exportChartPreservingWorkbook(
     try {
       const zip = await JSZip.loadAsync(preservationMeta.originalFileBuffer);
 
-      // Locate sheet XML files
-      const sheetFiles = Object.keys(zip.files).filter(
-        (f) => f.startsWith('xl/worksheets/sheet') && f.endsWith('.xml')
-      );
+      // 1. Locate the exact worksheet file corresponding to selectedSheetName
+      let wbXml = await zip.file('xl/workbook.xml')?.async('string');
+      let relsXml = await zip.file('xl/_rels/workbook.xml.rels')?.async('string');
 
-      if (sheetFiles.length > 0) {
-        const targetSheetFile = sheetFiles[0];
-        let sheetXml = await zip.file(targetSheetFile)!.async('string');
+      if (!wbXml || !relsXml) {
+        throw new Error('Workbook metadata or relationships XML missing in archive.');
+      }
 
-        // Column letters for new columns
-        const startColIdx = allColumns.length;
-        const colLetters = [
-          getExcelColumnLetter(startColIdx),
-          getExcelColumnLetter(startColIdx + 1),
-          getExcelColumnLetter(startColIdx + 2),
-          getExcelColumnLetter(startColIdx + 3),
-          getExcelColumnLetter(startColIdx + 4),
-        ];
+      // Match sheet in workbook.xml by name
+      const targetSheetRegex = new RegExp(`<sheet\\b[^>]*\\bname="${escapeXml(selectedSheetName)}"[^>]*\\br:id="([^"]+)"`, 'i');
+      let sheetMatch = wbXml.match(targetSheetRegex);
+      let targetRId = sheetMatch ? sheetMatch[1] : null;
 
-        const headerAdditions = `
-          <c r="${colLetters[0]}1" t="inlineStr"><is><t>Bucket_ID</t></is></c>
-          <c r="${colLetters[1]}1" t="inlineStr"><is><t>Bucket_Name</t></is></c>
-          <c r="${colLetters[2]}1" t="inlineStr"><is><t>Bucket_Description</t></is></c>
-          <c r="${colLetters[3]}1" t="inlineStr"><is><t>Assignment_Confidence</t></is></c>
-          <c r="${colLetters[4]}1" t="inlineStr"><is><t>Review_Required</t></is></c>
+      if (!targetRId) {
+        const altSheetRegex = new RegExp(`<sheet\\b[^>]*\\br:id="([^"]+)"[^>]*\\bname="${escapeXml(selectedSheetName)}"`, 'i');
+        const altMatch = wbXml.match(altSheetRegex);
+        targetRId = altMatch ? altMatch[1] : null;
+      }
+
+      if (!targetRId) {
+        throw new Error(`Selected worksheet "${selectedSheetName}" was not found in workbook archive.`);
+      }
+
+      // Resolve relationship target from workbook.xml.rels
+      const relRegex = new RegExp(`<Relationship\\b[^>]*\\bId="${targetRId}"[^>]*\\bTarget="([^"]+)"`, 'i');
+      let relMatch = relsXml.match(relRegex);
+      if (!relMatch) {
+        const altRelRegex = new RegExp(`<Relationship\\b[^>]*\\bTarget="([^"]+)"[^>]*\\bId="${targetRId}"`, 'i');
+        relMatch = relsXml.match(altRelRegex);
+      }
+
+      if (!relMatch) {
+        throw new Error(`Relationship for selected worksheet "${selectedSheetName}" (rId: ${targetRId}) was not found.`);
+      }
+
+      const rawTarget = relMatch[1];
+      const targetSheetFile = rawTarget.startsWith('xl/')
+        ? rawTarget
+        : `xl/${rawTarget.replace(/^\//, '')}`;
+
+      const targetFileObj = zip.file(targetSheetFile);
+      if (!targetFileObj) {
+        throw new Error(`Worksheet part "${targetSheetFile}" for sheet "${selectedSheetName}" was not found in archive.`);
+      }
+
+      let sheetXml = await targetFileObj.async('string');
+
+      // 2. Column letters for the 5 newly appended columns
+      const startColIdx = allColumns.length;
+      const colLetters = [
+        getExcelColumnLetter(startColIdx),
+        getExcelColumnLetter(startColIdx + 1),
+        getExcelColumnLetter(startColIdx + 2),
+        getExcelColumnLetter(startColIdx + 3),
+        getExcelColumnLetter(startColIdx + 4),
+      ];
+
+      // Update worksheet dimension
+      const maxColLetter = colLetters[4];
+      const maxRowIndex = originalRows.length + 1;
+      const dimRegex = /<dimension\b[^>]*\bref="([^"]*)"\s*\/>/;
+      if (dimRegex.test(sheetXml)) {
+        sheetXml = sheetXml.replace(dimRegex, `<dimension ref="A1:${maxColLetter}${Math.max(maxRowIndex, 2)}"/>`);
+      } else {
+        sheetXml = sheetXml.replace(
+          '<sheetViews>',
+          `<dimension ref="A1:${maxColLetter}${Math.max(maxRowIndex, 2)}"/><sheetViews>`
+        );
+      }
+
+      const headerAdditions = `
+        <c r="${colLetters[0]}1" t="inlineStr"><is><t>Bucket_ID</t></is></c>
+        <c r="${colLetters[1]}1" t="inlineStr"><is><t>Bucket_Name</t></is></c>
+        <c r="${colLetters[2]}1" t="inlineStr"><is><t>Bucket_Description</t></is></c>
+        <c r="${colLetters[3]}1" t="inlineStr"><is><t>Assignment_Confidence</t></is></c>
+        <c r="${colLetters[4]}1" t="inlineStr"><is><t>Review_Required</t></is></c>
+      `;
+
+      // 3. Append new columns exclusively to rows on the selected worksheet
+      sheetXml = sheetXml.replace(/<row\b([^>]*\br="(\d+)"[^>]*)>([\s\S]*?)<\/row>/g, (match, rowAttrs, rowNumStr, innerCells) => {
+        const rowNum = parseInt(rowNumStr, 10);
+        if (rowNum === 1) {
+          return `<row ${rowAttrs}>${innerCells}${headerAdditions}</row>`;
+        }
+
+        const originalRowIndex = rowNum - 2;
+        const assignment = assignments.get(originalRowIndex);
+
+        if (!assignment || assignment.isExcludedByFilter) {
+          // Write blank/empty values so excluded rows are never misaligned or shifted
+          const emptyCells = `
+            <c r="${colLetters[0]}${rowNum}" t="inlineStr"><is><t></t></is></c>
+            <c r="${colLetters[1]}${rowNum}" t="inlineStr"><is><t></t></is></c>
+            <c r="${colLetters[2]}${rowNum}" t="inlineStr"><is><t></t></is></c>
+            <c r="${colLetters[3]}${rowNum}" t="inlineStr"><is><t></t></is></c>
+            <c r="${colLetters[4]}${rowNum}" t="inlineStr"><is><t></t></is></c>
+          `;
+          return `<row ${rowAttrs}>${innerCells}${emptyCells}</row>`;
+        }
+
+        const bucket = bucketMap.get(assignment.bucketId);
+        const bucketId = assignment.bucketId || '';
+        const bucketName = escapeXml(assignment.bucketName || '');
+        const bucketDesc = escapeXml(bucket?.description || '');
+        const conf = assignment.confidence || 'Medium';
+        const reviewReq =
+          assignment.confidence === 'Needs Review' || assignment.bucketId === 'bucket_outliers' || bucket?.reviewRequired
+            ? 'YES'
+            : 'NO';
+
+        const newCells = `
+          <c r="${colLetters[0]}${rowNum}" t="inlineStr"><is><t>${bucketId}</t></is></c>
+          <c r="${colLetters[1]}${rowNum}" t="inlineStr"><is><t>${bucketName}</t></is></c>
+          <c r="${colLetters[2]}${rowNum}" t="inlineStr"><is><t>${bucketDesc}</t></is></c>
+          <c r="${colLetters[3]}${rowNum}" t="inlineStr"><is><t>${conf}</t></is></c>
+          <c r="${colLetters[4]}${rowNum}" t="inlineStr"><is><t>${reviewReq}</t></is></c>
         `;
 
-        // Safely append new cells to rows without modifying existing cells or drawings
-        sheetXml = sheetXml.replace(/<row r="(\d+)"([^>]*)>([\s\S]*?)<\/row>/g, (match, rowNumStr, attrs, innerCells) => {
-          const rowNum = parseInt(rowNumStr, 10);
-          if (rowNum === 1) {
-            return `<row r="${rowNum}"${attrs}>${innerCells}${headerAdditions}</row>`;
-          }
+        return `<row ${rowAttrs}>${innerCells}${newCells}</row>`;
+      });
 
-          const originalRowIndex = rowNum - 2;
-          const assignment = assignments.get(originalRowIndex);
+      // Write updated selected worksheet back
+      zip.file(targetSheetFile, sheetXml);
 
-          if (!assignment || assignment.isExcludedByFilter) {
-            return match;
-          }
+      // 4. Create the dedicated BucketAI Summary worksheet with collision-safe name
+      let summarySheetName = 'BucketAI Summary';
+      if (wbXml.includes(`name="${summarySheetName}"`)) {
+        summarySheetName = 'BucketAI Summary (1)';
+      }
 
-          const bucket = bucketMap.get(assignment.bucketId);
-          const bucketId = assignment.bucketId || '';
-          const bucketName = escapeXml(assignment.bucketName || '');
-          const bucketDesc = escapeXml(bucket?.description || '');
-          const conf = assignment.confidence || 'Medium';
-          const reviewReq =
-            assignment.confidence === 'Needs Review' || assignment.bucketId === 'bucket_outliers'
-              ? 'YES'
-              : 'NO';
+      const summarySheetFile = 'worksheets/sheet_bucketai_summary.xml';
+      const summarySheetXml = generateOpenXmlSummarySheet(
+        summarySheetName,
+        preservationMeta?.originalFileName || fileName,
+        selectedSheetName,
+        buckets,
+        totalRows,
+        includedRows,
+        excludedRows,
+        needsReviewRows
+      );
+      zip.file(`xl/${summarySheetFile}`, summarySheetXml);
 
-          const newCells = `
-            <c r="${colLetters[0]}${rowNum}" t="inlineStr"><is><t>${bucketId}</t></is></c>
-            <c r="${colLetters[1]}${rowNum}" t="inlineStr"><is><t>${bucketName}</t></is></c>
-            <c r="${colLetters[2]}${rowNum}" t="inlineStr"><is><t>${bucketDesc}</t></is></c>
-            <c r="${colLetters[3]}${rowNum}" t="inlineStr"><is><t>${conf}</t></is></c>
-            <c r="${colLetters[4]}${rowNum}" t="inlineStr"><is><t>${reviewReq}</t></is></c>
-          `;
+      // 5. Embed native Excel chart & drawing linked to the summary sheet
+      const chartXml = generateOpenXmlChart(chartCatNames, chartCounts, summarySheetName, chartType);
+      const drawingXml = generateOpenXmlDrawing();
 
-          return `<row r="${rowNum}"${attrs}>${innerCells}${newCells}</row>`;
-        });
-
-        zip.file(targetSheetFile, sheetXml);
-
-        // Now embed native Excel bar chart on Bucket_Summary sheet!
-        const chartXml = generateOpenXmlBarChart(chartCatNames, chartCounts);
-        const drawingXml = generateOpenXmlDrawing();
-
-        zip.file('xl/charts/chart_bucketai.xml', chartXml);
-        zip.file('xl/drawings/drawing_bucketai.xml', drawingXml);
-        zip.file(
-          'xl/drawings/_rels/drawing_bucketai.xml.rels',
-          `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+      zip.file('xl/charts/chart_bucketai.xml', chartXml);
+      zip.file('xl/drawings/drawing_bucketai.xml', drawingXml);
+      zip.file(
+        'xl/drawings/_rels/drawing_bucketai.xml.rels',
+        `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
   <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/chart" Target="../charts/chart_bucketai.xml"/>
 </Relationships>`
-        );
+      );
 
-        // Update Content_Types with Chart and Drawing parts
-        let contentTypes = await zip.file('[Content_Types].xml')?.async('string');
-        if (contentTypes) {
-          if (!contentTypes.includes('chart_bucketai.xml')) {
-            contentTypes = contentTypes.replace(
-              '</Types>',
-              `  <Override PartName="/xl/charts/chart_bucketai.xml" ContentType="application/vnd.openxmlformats-officedocument.drawingml.chart+xml"/>\n  <Override PartName="/xl/drawings/drawing_bucketai.xml" ContentType="application/vnd.openxmlformats-officedocument.drawing+xml"/>\n</Types>`
-            );
-            zip.file('[Content_Types].xml', contentTypes);
-          }
+      zip.file(
+        'xl/worksheets/_rels/sheet_bucketai_summary.xml.rels',
+        `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/drawing" Target="../drawings/drawing_bucketai.xml"/>
+</Relationships>`
+      );
+
+      // 6. Register new sheet and relationship in workbook.xml and workbook.xml.rels
+      const sheetIdMatches = [...wbXml.matchAll(/sheetId="(\d+)"/g)].map((m) => parseInt(m[1], 10));
+      const maxSheetId = Math.max(...sheetIdMatches, 0) + 1;
+
+      const rIdMatches = [...relsXml.matchAll(/Id="rId(\d+)"/g)].map((m) => parseInt(m[1], 10));
+      const nextRId = 'rId' + (Math.max(...rIdMatches, 0) + 1);
+
+      wbXml = wbXml.replace(
+        '</sheets>',
+        `<sheet name="${escapeXml(summarySheetName)}" sheetId="${maxSheetId}" r:id="${nextRId}"/></sheets>`
+      );
+      zip.file('xl/workbook.xml', wbXml);
+
+      relsXml = relsXml.replace(
+        '</Relationships>',
+        `<Relationship Id="${nextRId}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="${summarySheetFile}"/></Relationships>`
+      );
+      zip.file('xl/_rels/workbook.xml.rels', relsXml);
+
+      // 7. Update [Content_Types].xml
+      let contentTypes = await zip.file('[Content_Types].xml')?.async('string');
+      if (contentTypes) {
+        if (!contentTypes.includes('chart_bucketai.xml')) {
+          contentTypes = contentTypes.replace(
+            '</Types>',
+            `  <Override PartName="/xl/${summarySheetFile}" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
+  <Override PartName="/xl/charts/chart_bucketai.xml" ContentType="application/vnd.openxmlformats-officedocument.drawingml.chart+xml"/>
+  <Override PartName="/xl/drawings/drawing_bucketai.xml" ContentType="application/vnd.openxmlformats-officedocument.drawing+xml"/>
+</Types>`
+          );
+          zip.file('[Content_Types].xml', contentTypes);
         }
-
-        const blob = await zip.generateAsync({
-          type: 'blob',
-          mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-        });
-
-        triggerDownload(blob, fileName);
-        return {
-          method: 'chart_preserving_archive',
-          featuresPreserved: [
-            'Embedded Charts & Drawings',
-            'Original Sheets & Formulas',
-            'Added Native Excel Bar Chart',
-          ],
-        };
       }
-    } catch (zipErr) {
+
+      const blob = await zip.generateAsync({
+        type: 'blob',
+        mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      });
+
+      triggerDownload(blob, fileName);
+      return {
+        method: 'chart_preserving_archive',
+        featuresPreserved: [
+          `Selected worksheet "${selectedSheetName}" enriched with 5 columns`,
+          'All other worksheets, charts, and drawings 100% preserved',
+          `Added dedicated "${summarySheetName}" with native Excel ${chartType === 'pie' ? 'Pie' : 'Bar'} chart`,
+        ],
+      };
+    } catch (zipErr: any) {
       console.warn('Deep chart injection fell back to standard multi-sheet:', zipErr);
+      if (zipErr.message?.includes('Selected worksheet')) {
+        throw zipErr;
+      }
     }
   }
 
   // Multi-sheet fallback
-  exportStandardMultiSheet(originalRows, allColumns, assignments, buckets, fileName);
+  exportStandardMultiSheet(
+    originalRows,
+    allColumns,
+    assignments,
+    buckets,
+    selectedSheetName,
+    fileName,
+    chartType
+  );
   return {
     method: 'structured_multi_sheet',
-    featuresPreserved: ['All Original Rows & Order', 'Summary Sheet & Formulas'],
+    featuresPreserved: [
+      `Selected worksheet "${selectedSheetName}" enriched`,
+      'All original rows, order, and keys preserved',
+      'Dedicated BucketAI Summary worksheet created',
+    ],
   };
 }
 
@@ -550,11 +876,13 @@ export function exportStandardMultiSheet(
   allColumns: string[],
   assignments: Map<number, RowAssignment>,
   buckets: Bucket[],
-  fileName = 'BucketAI_Categorized.xlsx'
+  selectedSheetName: string,
+  fileName = 'BucketAI_Categorized.xlsx',
+  chartType: 'bar' | 'pie' = 'bar'
 ): void {
   const wb = XLSX.utils.book_new();
 
-  // Sheet 1: Enriched Data
+  // Sheet 1: Enriched Data for selected sheet
   const enrichedRows: any[] = originalRows.map((row) => {
     const assignment = assignments.get(row.__row_index__);
     const newRow: any = {};
@@ -570,7 +898,7 @@ export function exportStandardMultiSheet(
       newRow['Bucket_Description'] = sanitizeCellValue(b?.description || '');
       newRow['Assignment_Confidence'] = assignment.confidence;
       newRow['Review_Required'] =
-        assignment.confidence === 'Needs Review' || assignment.bucketId === 'bucket_outliers'
+        assignment.confidence === 'Needs Review' || assignment.bucketId === 'bucket_outliers' || b?.reviewRequired
           ? 'YES'
           : 'NO';
       newRow['Filter_Status'] = 'Included';
@@ -586,21 +914,22 @@ export function exportStandardMultiSheet(
     return newRow;
   });
 
+  const sheetTitle = selectedSheetName || 'Enriched_Data';
   const wsEnriched = XLSX.utils.json_to_sheet(enrichedRows);
-  XLSX.utils.book_append_sheet(wb, wsEnriched, 'Enriched_Data');
+  XLSX.utils.book_append_sheet(wb, wsEnriched, sheetTitle.slice(0, 31));
 
-  // Sheet 2: Bucket Summary
+  // Sheet 2: BucketAI Summary
   const includedRows = Array.from(assignments.values()).filter((a) => !a.isExcludedByFilter);
   const totalIncluded = includedRows.length;
 
   const summaryRows = buckets.map((b) => ({
     Bucket_ID: b.id,
-    Bucket_Name: sanitizeCellValue(b.name),
+    Category_Name: sanitizeCellValue(b.name),
     Total_Rows: b.totalRows,
     Percentage_of_Included:
       totalIncluded > 0 ? `${((b.totalRows / totalIncluded) * 100).toFixed(1)}%` : '0%',
-    Category_Type: b.isBlankBucket
-      ? 'Blank'
+    Category_Type: b.isBlankBucket || b.id === 'bucket_blank'
+      ? 'Blank / No Remarks'
       : b.isOutlierBucket
       ? 'Outlier / Needs Review'
       : 'Discovered Category',
@@ -610,7 +939,7 @@ export function exportStandardMultiSheet(
   }));
 
   const wsSummary = XLSX.utils.json_to_sheet(summaryRows);
-  XLSX.utils.book_append_sheet(wb, wsSummary, 'Bucket_Summary');
+  XLSX.utils.book_append_sheet(wb, wsSummary, 'BucketAI Summary');
 
   // Sheet 3: Needs Review Sheet
   const reviewRows = enrichedRows.filter((r) => r['Review_Required'] === 'YES');

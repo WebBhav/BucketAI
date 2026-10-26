@@ -291,7 +291,7 @@ export function discoverCategories(
     if (blankRemark) {
       buckets.push({
         id: 'bucket_blank',
-        name: 'Blank / No Remark',
+        name: 'Blank / No Remarks',
         description: 'Records where the remarks column is empty or contains non-informative placeholders.',
         color: '#94A3B8',
         keywords: ['Blank', 'No remark'],
@@ -515,8 +515,8 @@ export function discoverCategories(
   if (blankRemark) {
     buckets.push({
       id: 'bucket_blank',
-      name: 'Blank / No Remark',
-      description: 'Records where the remarks column is blank or contains placeholder dashes/NA.',
+      name: 'Blank / No Remarks',
+      description: 'Records where the remarks column is empty, contains only whitespace, or missing placeholders.',
       color: '#94A3B8',
       keywords: ['Blank'],
       sampleRemarks: ['[Blank or missing remark text]'],

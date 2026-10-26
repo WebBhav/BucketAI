@@ -1,10 +1,10 @@
 import { Bucket } from '../types';
 
 export interface GeminiBucketLabel {
-  id: string;
-  bucket_name: string;
-  bucket_description: string;
-  representative_examples: string[];
+  bucket_id: string;
+  name: string;
+  description: string;
+  review_required: boolean;
 }
 
 export interface MergeSuggestion {
@@ -44,7 +44,7 @@ export async function labelBucketsWithGemini(
   onStatusUpdate?: (status: string) => void,
   signal?: AbortSignal
 ): Promise<{ updatedBuckets: Bucket[]; usedAi: boolean; error?: string; isCancelled?: boolean }> {
-  // Separate blank and outlier buckets from semantic clusters
+  // Separate blank and outlier buckets from semantic clusters (blanks are NEVER sent to Gemini)
   const eligibleBuckets = buckets.filter((b) => !b.isBlankBucket && !b.isOutlierBucket);
 
   if (eligibleBuckets.length === 0) {
@@ -68,9 +68,9 @@ export async function labelBucketsWithGemini(
       if (cached) {
         return {
           ...b,
-          name: cached.bucket_name,
-          description: cached.bucket_description,
-          sampleRemarks: cached.representative_examples.length > 0 ? cached.representative_examples : b.sampleRemarks,
+          name: cached.name,
+          description: cached.description,
+          reviewRequired: cached.review_required,
         };
       }
       return b;
@@ -78,7 +78,7 @@ export async function labelBucketsWithGemini(
     return { updatedBuckets: updated, usedAi: true };
   }
 
-  onStatusUpdate?.('Requesting AI category names & descriptions...');
+  onStatusUpdate?.('Requesting enterprise category names from Gemini 3.1 Flash-Lite...');
 
   try {
     const response = await fetch('/api/gemini/label-buckets', {
@@ -102,12 +102,21 @@ export async function labelBucketsWithGemini(
     }
 
     const data = await response.json();
-    const labels: GeminiBucketLabel[] = data.labels || [];
+    const returnedList: GeminiBucketLabel[] = data.buckets || data.labels || [];
 
     const labelMap = new Map<string, GeminiBucketLabel>();
-    labels.forEach((l) => {
-      if (l.id && l.bucket_name) {
-        labelMap.set(l.id, l);
+    returnedList.forEach((l: any) => {
+      const bId = l.bucket_id || l.id;
+      const bName = l.name || l.bucket_name;
+      const bDesc = l.description || l.bucket_description || '';
+      const bRev = Boolean(l.review_required);
+      if (bId && bName) {
+        labelMap.set(bId, {
+          bucket_id: bId,
+          name: bName,
+          description: bDesc,
+          review_required: bRev,
+        });
       }
     });
 
@@ -119,15 +128,15 @@ export async function labelBucketsWithGemini(
       }
     });
 
-    // Merge labels into buckets without touching underlying cluster assignments or original data
+    // Merge labels into buckets without touching underlying cluster assignments, sample remarks, or counts
     const updatedBuckets = buckets.map((b) => {
       const l = labelMap.get(b.id) || labelCache.get(createBucketFingerprint(b));
       if (l) {
         return {
           ...b,
-          name: l.bucket_name,
-          description: l.bucket_description,
-          sampleRemarks: l.representative_examples && l.representative_examples.length > 0 ? l.representative_examples : b.sampleRemarks,
+          name: l.name,
+          description: l.description,
+          reviewRequired: l.review_required,
         };
       }
       return b;
