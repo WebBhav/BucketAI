@@ -3,6 +3,7 @@
 @layer base {
   :root {
     color-scheme: dark;
+    scroll-behavior: smooth;
   }
 
   body {
@@ -22,6 +23,11 @@
 .bg-dot-grid {
   background-image: radial-gradient(rgba(255, 255, 255, 0.07) 1px, transparent 1px);
   background-size: 24px 24px;
+}
+
+.bg-dot-grid-fine {
+  background-image: radial-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 1px);
+  background-size: 16px 16px;
 }
 
 /* Red accent glows & outlines */
@@ -45,3 +51,4 @@
 ::-webkit-scrollbar-thumb:hover {
   background: #3f3f46;
 }
+
